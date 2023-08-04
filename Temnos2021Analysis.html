@@ -485,8 +485,8 @@ queens.</p>
 <pre><code>## The following objects are masked from &#39;package:base&#39;:
 ## 
 ##     date, intersect, setdiff, union</code></pre>
-<pre class="r"><code>data$Date.Collected.D.M &lt;- as.Date((data$Date.Collected.D.M), format = &quot;%d-%b-%y&quot;)
-data$Date.Dissected.D.M &lt;- as.Date((data$Date.Dissected.D.M), format = &quot;%d-%b-%y&quot;)
+<pre class="r"><code>data$Date.Collected.D.M &lt;- as.Date((data$Date.Collected.D.M), format = &quot;%d-%b-%y&quot;, startdate=&quot;2021-05-01&quot;)
+data$Date.Dissected.D.M &lt;- as.Date((data$Date.Dissected.D.M), format = &quot;%d-%b-%y&quot;,startdate=&quot;2021-05-01&quot;)
 data$Callow&lt;-as.logical(data$Callow)
 summarydata&lt;- read.csv(&quot;~/Temnos2021/Koenig_Temnos_2021_nest_census_data.csv&quot;)
 summarydata$Date.Collected &lt;- as.Date(as.character(summarydata$Date.Collected), format = &quot;%d- %b&quot;)
@@ -890,7 +890,7 @@ summary(model2)</code></pre>
 ## Confidence level used: 0.95</code></pre>
 <pre class="r"><code>#Remove Winged.Queen.Count from model
 
-model3&lt;-lme(standardizedvenom~Callow+Date.Collected.D.M+Behavior.Code*Adult.Count.Scaled+Behavior.Code*Pupae.Adult.Ratio+as.factor(Queen.Count&gt;0), data=workerdata, random= ~1|Colony)
+model3&lt;-lme(standardizedvenom~Callow+Behavior.Code*Adult.Count.Scaled+Date.Collected.D.M+Behavior.Code*Pupae.Adult.Ratio+as.factor(Queen.Count&gt;0), data=workerdata, random= ~1|Colony)
 summary(model3)</code></pre>
 <pre><code>## Linear mixed-effects model fit by REML
 ##   Data: workerdata 
@@ -902,13 +902,13 @@ summary(model3)</code></pre>
 ##          (Intercept)     Residual
 ## StdDev: 0.0002624909 0.0006150299
 ## 
-## Fixed effects:  standardizedvenom ~ Callow + Date.Collected.D.M + Behavior.Code *      Adult.Count.Scaled + Behavior.Code * Pupae.Adult.Ratio +      as.factor(Queen.Count &gt; 0) 
+## Fixed effects:  standardizedvenom ~ Callow + Behavior.Code * Adult.Count.Scaled +      Date.Collected.D.M + Behavior.Code * Pupae.Adult.Ratio +      as.factor(Queen.Count &gt; 0) 
 ##                                             Value   Std.Error   DF   t-value
 ## (Intercept)                            0.05197702 0.011060078 1896  4.699516
 ## CallowTRUE                            -0.00077813 0.000164103 1896 -4.741713
-## Date.Collected.D.M                    -0.00000266 0.000000588  150 -4.527375
 ## Behavior.CodeNurse                    -0.00034018 0.000038084 1896 -8.932296
 ## Adult.Count.Scaled                     0.00006934 0.000032634  150  2.124655
+## Date.Collected.D.M                    -0.00000266 0.000000588  150 -4.527375
 ## Pupae.Adult.Ratio                     -0.00003508 0.000041249  150 -0.850460
 ## as.factor(Queen.Count &gt; 0)TRUE        -0.00014120 0.000061823  150 -2.283883
 ## Behavior.CodeNurse:Adult.Count.Scaled -0.00005795 0.000023461 1896 -2.470043
@@ -916,28 +916,28 @@ summary(model3)</code></pre>
 ##                                       p-value
 ## (Intercept)                            0.0000
 ## CallowTRUE                             0.0000
-## Date.Collected.D.M                     0.0000
 ## Behavior.CodeNurse                     0.0000
 ## Adult.Count.Scaled                     0.0353
+## Date.Collected.D.M                     0.0000
 ## Pupae.Adult.Ratio                      0.3964
 ## as.factor(Queen.Count &gt; 0)TRUE         0.0238
 ## Behavior.CodeNurse:Adult.Count.Scaled  0.0136
 ## Behavior.CodeNurse:Pupae.Adult.Ratio   0.0000
 ##  Correlation: 
-##                                       (Intr) ClTRUE D.C.D. Bhv.CN Ad.C.S Pp.A.R
+##                                       (Intr) ClTRUE Bhv.CN Ad.C.S D.C.D. Pp.A.R
 ## CallowTRUE                             0.013                                   
-## Date.Collected.D.M                    -1.000 -0.013                            
-## Behavior.CodeNurse                     0.031 -0.042 -0.033                     
-## Adult.Count.Scaled                     0.442  0.001 -0.442  0.255              
-## Pupae.Adult.Ratio                      0.011  0.008 -0.012  0.326  0.237       
-## as.factor(Queen.Count &gt; 0)TRUE         0.084  0.016 -0.088 -0.020 -0.102 -0.027
-## Behavior.CodeNurse:Adult.Count.Scaled -0.009  0.006  0.010 -0.490 -0.464 -0.187
-## Behavior.CodeNurse:Pupae.Adult.Ratio  -0.023 -0.014  0.024 -0.486 -0.145 -0.689
+## Behavior.CodeNurse                     0.031 -0.042                            
+## Adult.Count.Scaled                     0.442  0.001  0.255                     
+## Date.Collected.D.M                    -1.000 -0.013 -0.033 -0.442              
+## Pupae.Adult.Ratio                      0.011  0.008  0.326  0.237 -0.012       
+## as.factor(Queen.Count &gt; 0)TRUE         0.084  0.016 -0.020 -0.102 -0.088 -0.027
+## Behavior.CodeNurse:Adult.Count.Scaled -0.009  0.006 -0.490 -0.464  0.010 -0.187
+## Behavior.CodeNurse:Pupae.Adult.Ratio  -0.023 -0.014 -0.486 -0.145  0.024 -0.689
 ##                                       a.(Q&gt;0 B.CN:A
 ## CallowTRUE                                         
-## Date.Collected.D.M                                 
 ## Behavior.CodeNurse                                 
 ## Adult.Count.Scaled                                 
+## Date.Collected.D.M                                 
 ## Pupae.Adult.Ratio                                  
 ## as.factor(Queen.Count &gt; 0)TRUE                     
 ## Behavior.CodeNurse:Adult.Count.Scaled  0.003       
@@ -1066,18 +1066,18 @@ season</p>
 ## 
 ##                              Term  VIF     VIF 95% CI Increased SE Tolerance
 ##                            Callow 1.00 [1.00, 225.37]         1.00      1.00
-##                Date.Collected.D.M 1.39 [1.32,   1.47]         1.18      0.72
 ##                     Behavior.Code 1.60 [1.51,   1.70]         1.26      0.63
 ##                Adult.Count.Scaled 1.86 [1.75,   1.99]         1.36      0.54
+##                Date.Collected.D.M 1.39 [1.32,   1.47]         1.18      0.72
 ##                 Pupae.Adult.Ratio 2.04 [1.92,   2.18]         1.43      0.49
 ##        as.factor(Queen.Count &gt; 0) 1.04 [1.01,   1.13]         1.02      0.96
 ##  Behavior.Code:Adult.Count.Scaled 1.70 [1.61,   1.82]         1.31      0.59
 ##   Behavior.Code:Pupae.Adult.Ratio 2.31 [2.16,   2.47]         1.52      0.43
 ##  Tolerance 95% CI
 ##      [0.00, 1.00]
-##      [0.68, 0.76]
 ##      [0.59, 0.66]
 ##      [0.50, 0.57]
+##      [0.68, 0.76]
 ##      [0.46, 0.52]
 ##      [0.89, 0.99]
 ##      [0.55, 0.62]
