@@ -21,7 +21,8 @@ library(factoextra)
 library(performance)
 library(patchwork)
 library(emmeans)
-
+library(MuMIn)
+library(rsq)
 ```
 
 ### Data
@@ -78,6 +79,8 @@ Dataset has dissected workers and queens. It also has some pupae. Here are the v
 
 In this chunk, I import the summary datasheet (nest level data) and add a few new variables to the dissection dataset that can be calculated from the initial variables. Almost all info included in the summary dataset is included in the original dataset, but I import the summary dataset in order to scale the nest census variables, because I want them scaled by the average colony size. I also make sure the date is in the correct format. The most important variable created here is **Venom.Volume**, which is calculated with the formula Venom.Volume $=\frac{\pi}{6} \times(L \times W^2)$ for each venom sac. 
 
+I use Date to create a new variable, **Collection.Day** where day 1 is the first day I collected ants in the field. 
+
 I subset the dataset to create separate datasets of workers and queens.
 
 ```{r}
@@ -94,23 +97,28 @@ year(summarydata$Date.Collected) <- 2021
 data$Collection.Day<-as.numeric(data$Date.Collected.D.M)-18750
 
 
-#Scale variables to make results more interpretable.
-meanadults<-mean(summarydata$Adult.Count)
-SDadults<-sd(summarydata$Adult.Count)
+#Scale variables to make results more interpretable. Since there are multiple rows of data in our main dataset for the same nest, we don't want nests that had more workers to contribute more to the mean for adult count or larva count. We want only one contribution to the mean per nest. To do this I pulled in the summarydata dataset which is all colonies collected over the season (some of which never led to successful dissections of workers). I then subset the dataset to make sure I'm only calculating means from nests that did see successful dissections
+# subset row by colony numbers that are included in data df
+summarydatasubset<-subset(summarydata, summarydata$Colony %in% data$Colony)
+
+#calculate means and SDs for Adult, pupa, and larva count. Define scaled variables in data df 
+meanadults<-mean(summarydatasubset$Adult.Count)
+SDadults<-sd(summarydatasubset$Adult.Count)
 data$Adult.Count.Scaled<-(data$Adult.Count-meanadults)/SDadults
-meanpupae<-mean(summarydata$Pupae.Count)
-SDpupae<-sd(summarydata$Pupae.Count)
+meanpupae<-mean(summarydatasubset$Pupae.Count)
+SDpupae<-sd(summarydatasubset$Pupae.Count)
 data$Pupae.Count.Scaled<-(data$Pupae.Count-meanpupae)/SDpupae
-meanlarvae<-mean(summarydata$Larvae.Count)
-SDlarvae<-sd(summarydata$Larvae.Count)
+meanlarvae<-mean(summarydatasubset$Larvae.Count)
+SDlarvae<-sd(summarydatasubset$Larvae.Count)
 data$Larvae.Count.Scaled<-(data$Larvae.Count-meanlarvae)/SDlarvae
 data$Location.Collected<-as.factor(data$Location.Collected)
 
 
-#Create a variable for venom volume, which is an ellipsoid using venom sac length and width
-data$Venom.Volume<-(pi/6)*data$Venom.Sac.Length.mm*data$Venom.Sac.Width.mm^2
-#venom volume in micrometers cubed
-data$Venom.Volume.micrometers<-(pi/6)*(data$Venom.Sac.Length.mm*100)*(data$Venom.Sac.Width.mm*100)^2
+#Create a variable for venom volume, which is an ellipsoid using venom sac length and width. Since both length and width are measured in mm, this volume is in mm^3, which is 1:1 with microliters. For the purposes of graphing and modeling this problem, we will multiply by 1000 to convert to nanoliters
+data$Venom.Volume<-(pi/6)*data$Venom.Sac.Length.mm*data$Venom.Sac.Width.mm^2*1000
+
+
+
 #Standardize venom by body size
 data$standardizedvenom<-((data$Venom.Volume)/(data$Webers.Length.mm))
 
@@ -136,21 +144,40 @@ queendata<-subset(queendata,Behavior.Code!="Pupa")
 nrow(workerdata)
 #Successfully dissected 2054 adult worker
 nrow(subset(workerdata,Behavior.Code=="Nurse"))
+length(unique(subset(workerdata,Behavior.Code=="Nurse")$Colony))
 nrow(subset(workerdata,Behavior.Code=="Forager"))
-#1394 of these were nurses, 661 of them foragers
+length(unique(subset(workerdata,Behavior.Code=="Forager")$Colony))
+#1394 of these were nurses from 153 colonies, 661 of them foragers from 142 colonies
 nrow(queendata)
 #Successfully dissected 199 queens
 nrow(subset(queendata,Behavior.Code=="Mated"))
 nrow(subset(queendata,Behavior.Code=="Unmated"))
-#155 of them were dealate queens, 44 were alate queens
+#155 of them were dealate queens, 44 were alate queens. They are coded in dataset as mated or unmated but I did not dissect spermathecas, just looked at whether or not they had wings
 
 nrow(subset(workerdata,Callow==T))
 #16
+length(unique(subset(workerdata,Callow==T)$Colony))
+# from 8 colonies
 nrow(subset(workerdata,Callow==F))
-#2039
+length(unique(subset(workerdata,Callow==F)$Colony))
+#2039 from 155 colonies
 
 mean(workerdata$Venom.Volume)
 sd(workerdata$Venom.Volume)
+
+#What is the average number of nests per collection day?
+uniquedays<-unique(workerdata$Collection.Day)
+length(uniquedays)
+uniquenests<-unique(workerdata$Colony)
+length(uniquenests)
+length(uniquenests)/length(uniquedays)
+#3.9 nests on average per day, 40 collection days
+
+
+queened<-subset(workerdata,Queen.Count>0)
+notqueened<-subset(workerdata,Queen.Count==0)
+length(unique(queened$Colony))
+length(unique(notqueened$Colony))
 ```
 
 # Visualizing worker data
@@ -168,23 +195,23 @@ queendata<-subset(queendata,Behavior.Code!="Pupa")
 Do nurses and foragers have the same amount of venom? Do workers in queenright colonies have the same amount of venom as workers in queenless colonies? Do callow workers have the same amount of venom as melanized workers? Graph it.
 
 ```{r}
-workerdata$standardizedvenom<-workerdata$Venom.Volume
-venombybehavior<-ggplot(workerdata,aes(Behavior.Code,standardizedvenom*1000,color=Behavior.Code))+
+
+venombybehavior<-ggplot(workerdata,aes(Behavior.Code,Venom.Volume,color=Behavior.Code))+
 geom_violin()+
   geom_boxplot(width=0.1)+
-  xlab("Behavioral Group")+ylab("Standardized Venom Volume")+theme_bw(base_size = 22)+
+  xlab("Behavioral Group")+ylab("Venom Volume (nL)")+theme_bw(base_size = 22)+
   theme(legend.position="none")+
 scale_colour_discrete("")
 
-venombyqueenright<-ggplot(workerdata,aes(as.factor(Queen.Count>0),standardizedvenom*1000, color=as.factor(Queen.Count>0)))+
+venombyqueenright<-ggplot(workerdata,aes(as.factor(Queen.Count>0),Venom.Volume, color=as.factor(Queen.Count>0)))+
 geom_violin()+
   geom_boxplot(width=0.1)+
-  xlab("Number of Dealate Queens")+ylab("Standardized Venom Volume")+theme_bw(base_size = 22)+
+  xlab("Number of Dealate Queens")+ylab("Venom Volume (nL)")+theme_bw(base_size = 22)+
   theme(legend.position="none")+
   scale_x_discrete(labels = c('0','At least 1'))
 
-callowplot = ggplot(data=workerdata,aes(x=Callow, y=standardizedvenom*1000, color=Callow)) + geom_violin() +geom_boxplot(width=0.1)+
-xlab("Callow")+ylab("Standardized Venom Volume")+theme_bw(base_size = 22)+theme(legend.position = "none")+ scale_x_discrete(labels=c("No", "Yes"))
+callowplot = ggplot(data=workerdata,aes(x=Callow, y=Venom.Volume, color=Callow)) + geom_violin() +geom_boxplot(width=0.1)+
+xlab("Callow")+ylab("Venom Volume (nL)")+theme_bw(base_size = 22)+theme(legend.position = "none")+ scale_x_discrete(labels=c("No", "Yes"))
 
 remove_y <- theme(
   axis.text.y = element_blank(),
@@ -196,13 +223,13 @@ p=list(venombybehavior,callowplot+remove_y,venombyqueenright+remove_y)
 
 wrap_plots(p, nrow = 1) 
 
-ggsave('workers2021',plot=wrap_plots(p, nrow = 1),dpi=900,width =39, height = 15, units = "cm",device='png')
+ggsave('workers2021.png',plot=wrap_plots(p, nrow = 1),dpi=900,width =39, height = 15, units = "cm",device='png')
 
 ```
 
 
 
-This first block is for worker venom volume, P1a. First, lets represent graphically.
+Worker venom volume represented graphically
 
 ```{r}
 #now the initial model, which looks for an interaction effect between behavior and pupae count, and between behavior and adult count.
@@ -223,14 +250,15 @@ venombysize
 
 
   
-venombydate = ggplot(data=workerdata, aes(Date.Collected.D.M,standardizedvenom,color=Behavior.Code)) + 
+venombydate = ggplot(data=workerdata, aes(Date.Collected.D.M,Venom.Volume)) + 
 geom_point() +
   scale_x_date(date_breaks = "months" , date_labels = "%b")+
 geom_smooth(method=lm, se=TRUE ) +
 xlab("Date of Nest Collection ")+
-ylab("Standardized Venom Volume")+
+ylab("Venom Volume (nL)")+
 theme_bw(base_size = 22)
 venombydate
+ggsave('venombydate2021revised.png',plot=venombydate,dpi=900,width =25, height = 15, units = "cm",device='png')
 
 venombypupae = ggplot(data=workerdata, aes(Pupae.Count,standardizedvenom)) + 
 geom_point() +
@@ -240,24 +268,29 @@ ylab("Standardized Venom Volume")+
 theme_bw(base_size = 22)
 venombypupae
 
-venombyadultinteraction=ggplot(data=workerdata, aes(Adult.Count,standardizedvenom, color=Behavior.Code)) + 
+venombyadultinteraction=ggplot(data=workerdata, aes(Adult.Count,Venom.Volume, color=Behavior.Code)) + 
 geom_point() +
 geom_smooth(method=lm, fill="gray", se=TRUE) +
 xlab("Number of Workers in Nest")+
-ylab("Standardized Venom Volume")+
+ylab("Venom Volume (nL)")+
 theme_bw(base_size = 22)+
 scale_colour_discrete("Behavior")
 venombyadultinteraction
+ggsave('adultinteraction2021revised.png',plot=venombyadultinteraction,dpi=900,width =30, height = 15, units = "cm",device='png')
 
-venombyratio=ggplot(data=workerdata, aes(Pupae.Adult.Ratio,standardizedvenom, color=Behavior.Code)) + 
+
+#Define ratio of pupae to adults
+workerdata$Pupae.Adult.Ratio=workerdata$Pupae.Count/workerdata$Adult.Count
+
+venombyratio=ggplot(data=workerdata, aes(Pupae.Adult.Ratio,Venom.Volume, color=Behavior.Code)) + 
 geom_point() +
 geom_smooth(method=lm, fill="gray", se=TRUE) +
 xlab("Ratio of Pupae to Adults")+
-ylab("Standardized Venom Volume")+
+ylab("Venom Volume (nL)")+
 theme_bw(base_size = 22)+
 scale_colour_discrete("Behavior")
 venombyratio
-
+ggsave('pupaeinteraction2021revised.png',plot=venombyratio,dpi=900,width =30, height = 15, units = "cm",device='png')
 ```
 
 # Modeling Worker data
@@ -271,19 +304,19 @@ workerdata$Pupae.Adult.Ratio=workerdata$Pupae.Count/workerdata$Adult.Count
 workerdata$Larvae.Adult.Ratio=workerdata$Larvae.Count/workerdata$Adult.Count
 workerdata$Young.Adult.Ratio=(workerdata$Larvae.Count+workerdata$Pupae.Count)/workerdata$Adult.Count
 
-model1<-lme(standardizedvenom~Callow+Collection.Day+Behavior.Code*Adult.Count.Scaled+Behavior.Code*Pupae.Adult.Ratio+as.factor(Queen.Count>0)+Larvae.Adult.Ratio+Winged.Queen.Count, data=workerdata, random= ~1|Colony)
+model1<-lme(Venom.Volume~Callow+Collection.Day+Behavior.Code*Adult.Count.Scaled+Behavior.Code*Pupae.Adult.Ratio+as.factor(Queen.Count>0)+Larvae.Adult.Ratio+Winged.Queen.Count+I(Webers.Length.mm^3), data=workerdata, random= ~1|Colony)
 summary(model1)
 emtrends(model1,pairwise~Behavior.Code, var = "Pupae.Adult.Ratio",infer=TRUE)
 emtrends(model1,pairwise~Behavior.Code, var = "Adult.Count.Scaled",infer=TRUE)
 #Remove Larvae.Adult.Ratio from model
 
-model2<-lme(standardizedvenom~Callow+Collection.Day+Behavior.Code*Adult.Count.Scaled+Behavior.Code*Pupae.Adult.Ratio+as.factor(Queen.Count>0)+Winged.Queen.Count, data=workerdata, random= ~1|Colony)
+model2<-lme(Venom.Volume~Callow+Collection.Day+Behavior.Code*Adult.Count.Scaled+Behavior.Code*Pupae.Adult.Ratio+as.factor(Queen.Count>0)+Winged.Queen.Count, data=workerdata, random= ~1|Colony)
 summary(model2)
 emtrends(model2,pairwise~Behavior.Code, var = "Pupae.Adult.Ratio",infer=TRUE)
 emtrends(model2,pairwise~Behavior.Code, var = "Adult.Count.Scaled",infer=TRUE)
 #Remove Winged.Queen.Count from model
 
-model3<-lme(standardizedvenom~Callow+Behavior.Code*Adult.Count.Scaled+Collection.Day+Behavior.Code*Pupae.Adult.Ratio+as.factor(Queen.Count>0), data=workerdata, random= ~1|Colony)
+model3<-lme(Venom.Volume~Callow+Behavior.Code*Adult.Count.Scaled+Collection.Day+Behavior.Code*Pupae.Adult.Ratio+as.factor(Queen.Count>0)+I(Webers.Length.mm^3), data=workerdata, random= ~1|Colony)
 summary(model3)
 emtrends(model3,pairwise~Behavior.Code, var = "Pupae.Adult.Ratio",infer=TRUE)
 emtrends(model3,pairwise~Behavior.Code, var = "Adult.Count.Scaled",infer=TRUE)
@@ -302,6 +335,8 @@ hist(resid(model3))
 pairs(emmeans(model3, ~ Behavior.Code * Adult.Count.Scaled,at=list(Adult.Count.Scaled=c(-1,0,1))))
 pairs(emmeans(model3, ~ Behavior.Code | Adult.Count.Scaled,at=list(Adult.Count.Scaled=c(-1,0,1))))
 
+
+rsq.lmm(model3)
 
 ```
 
@@ -326,7 +361,7 @@ scale_colour_discrete("Behavior")
 venombyratio2
 
 #Model results with removed
-model3_OutliersRemoved<-lme(standardizedvenom~Callow+Behavior.Code*Adult.Count.Scaled+Collection.Day+Behavior.Code*Pupae.Adult.Ratio+as.factor(Queen.Count>0), data=subset(workerdata,Pupae.Adult.Ratio<5), random= ~1|Colony)
+model3_OutliersRemoved<-lme(Venom.Volume~Callow+Behavior.Code*Adult.Count.Scaled+Collection.Day+Behavior.Code*Pupae.Adult.Ratio+as.factor(Queen.Count>0)+I(Webers.Length.mm^3), data=subset(workerdata,Pupae.Adult.Ratio<5), random= ~1|Colony)
 summary(model3_OutliersRemoved)
 emtrends(model3_OutliersRemoved,pairwise~Behavior.Code, var = "Pupae.Adult.Ratio",infer=TRUE)
 emtrends(model3_OutliersRemoved,pairwise~Behavior.Code, var = "Adult.Count.Scaled",infer=TRUE)
@@ -334,32 +369,65 @@ emtrends(model3_OutliersRemoved,pairwise~Behavior.Code, var = "Adult.Count.Scale
 #Nurses from colonies with higher pupae to adult ratios still have more venom even when we remove these outliers
 
 ```
+
+
+
 ###Controlling for Size of ants
-Which is the best way to control for Weber's length? Do we standardize response variable or include it in the model? Do we cube it or leave it linear?
+Which is the best way to control for Weber's length? Do we standardize response variable or include it in the model? Do we cube it or leave it linear? Some of this code from Lynn Johnson at cornell statistical consulting unit
 ```{r}
-#our selected model
-model3<-lme(standardizedvenom~Callow+Behavior.Code*Adult.Count.Scaled+Collection.Day+Behavior.Code*Pupae.Adult.Ratio+as.factor(Queen.Count>0), data=workerdata, random= ~1|Colony)
+plot(workerdata$standardizedvenom, workerdata$Venom.Volume/workerdata$Webers.Length.mm)
+workerdata$standardizedvenom2 <- workerdata$Venom.Volume/(workerdata$Webers.Length.mm^3)
+workerdata$Pupae.Adult.Ratio <- workerdata$Pupae.Count/workerdata$Adult.Count
+
+
+# venom/weber
+model3 <- lme(standardizedvenom ~ Callow+Behavior.Code*Adult.Count.Scaled+Collection.Day+
+              Behavior.Code*Pupae.Adult.Ratio+as.factor(Queen.Count>0), random= ~1|Colony,
+              data=workerdata)
 summary(model3)
-emtrends(model3,pairwise~Behavior.Code, var = "Pupae.Adult.Ratio",infer=TRUE)
-emtrends(model3,pairwise~Behavior.Code, var = "Adult.Count.Scaled",infer=TRUE)
+emtrends(model3, pairwise~Behavior.Code, var = "Pupae.Adult.Ratio",infer=TRUE)
+emtrends(model3, pairwise~Behavior.Code, var = "Adult.Count.Scaled",infer=TRUE)
 
-#Selected model with response variable standardized by weber's length cubed 
-workerdata$standardizedvenom2<-workerdata$Venom.Volume/(workerdata$Webers.Length.mm^3)
-model3_StandCubed<-lme(standardizedvenom2~Callow+Behavior.Code*Adult.Count.Scaled+Collection.Day+Behavior.Code*Pupae.Adult.Ratio+as.factor(Queen.Count>0), data=workerdata, random= ~1|Colony)
-summary(model3_StandCubed)
-emtrends(model3_StandCubed,pairwise~Behavior.Code, var = "Pupae.Adult.Ratio",infer=TRUE)
-emtrends(model3_StandCubed,pairwise~Behavior.Code, var = "Adult.Count.Scaled",infer=TRUE)
+# venom ~ weber
+model3_fe <- lme(Venom.Volume ~ Callow+Behavior.Code*Adult.Count.Scaled+Collection.Day+
+                       Behavior.Code*Pupae.Adult.Ratio+as.factor(Queen.Count>0) + Webers.Length.mm, 
+                     random= ~1|Colony, data=workerdata)
+summary(model3_fe)
+emtrends(model3_fe, pairwise~Behavior.Code, var = "Pupae.Adult.Ratio",infer=TRUE)
+emtrends(model3_fe, pairwise~Behavior.Code, var = "Adult.Count.Scaled",infer=TRUE)
 
-#changed so venom volume is reponse variable and weber's length is fixed effect
-model3_Volume<-lme(Venom.Volume~Callow+Webers.Length.mm+Behavior.Code*Adult.Count.Scaled+Collection.Day+Behavior.Code*Pupae.Adult.Ratio+as.factor(Queen.Count>0), data=workerdata, random= ~1|Colony)
-summary(model3_Volume)
-emtrends(model3_Volume,pairwise~Behavior.Code, var = "Pupae.Adult.Ratio",infer=TRUE)
-emtrends(model3_Volume,pairwise~Behavior.Code, var = "Adult.Count.Scaled",infer=TRUE)
+# venom/weber^3
+model3_cubed <- lme(standardizedvenom2 ~ Callow+Behavior.Code*Adult.Count.Scaled+Collection.Day+
+              Behavior.Code*Pupae.Adult.Ratio+as.factor(Queen.Count>0), random= ~1|Colony, data=workerdata)
+summary(model3_cubed)
+emtrends(model3_cubed, pairwise~Behavior.Code, var = "Pupae.Adult.Ratio",infer=TRUE)
+emtrends(model3_cubed, pairwise~Behavior.Code, var = "Adult.Count.Scaled",infer=TRUE)
 
-model3_VolumeCubed<-lme(standardizedvenom~Callow+Webers.Length.mm^3+Behavior.Code*Adult.Count.Scaled+Collection.Day+Behavior.Code*Pupae.Adult.Ratio+as.factor(Queen.Count>0), data=workerdata, random= ~1|Colony)
-summary(model3_VolumeCubed)
-emtrends(model3_VolumeCubed,pairwise~Behavior.Code, var = "Pupae.Adult.Ratio",infer=TRUE)
-emtrends(model3_VolumeCubed,pairwise~Behavior.Code, var = "Adult.Count.Scaled",infer=TRUE)
+# venom ~ weber^3
+model3_cubed_fe <- lme(Venom.Volume ~ Callow+Behavior.Code*Adult.Count.Scaled+Collection.Day+
+              Behavior.Code*Pupae.Adult.Ratio+as.factor(Queen.Count>0) + I(Webers.Length.mm^3), 
+              random= ~1|Colony, data=workerdata)
+summary(model3_cubed_fe)
+emtrends(model3_cubed_fe, pairwise~Behavior.Code, var = "Pupae.Adult.Ratio",infer=TRUE)
+emtrends(model3_cubed_fe, pairwise~Behavior.Code, var = "Adult.Count.Scaled",infer=TRUE)
+
+
+AIC(model3_Volume, model3_VolumeCubed)
+
+plot(workerdata$standardizedvenom, fitted(model3), xlim = c(0,0.0035), ylim = c(0,0.0035))
+cor(workerdata$standardizedvenom, fitted(model3))
+
+plot(workerdata$Venom.Volume, fitted(model3_fe), xlim = c(0,0.0035), ylim = c(0,0.0035))
+cor(workerdata$Venom.Volume, fitted(model3_fe))
+
+plot(workerdata$standardizedvenom2, fitted(model3_cubed), xlim = c(0,0.01), ylim = c(0,0.01))
+cor(workerdata$standardizedvenom2, fitted(model3_cubed))
+
+plot(workerdata$Venom.Volume, fitted(model3_cubed_fe), xlim = c(0,0.004), ylim = c(0,0.004))
+cor(workerdata$Venom.Volume, fitted(model3_cubed_fe))
+
+
+
 ```
 
 
@@ -454,23 +522,17 @@ theme_bw(base_size = 22)+
 scale_x_date(date_breaks = "months" , date_labels = "%b")+
 geom_smooth(method='lm', formula= y~x)
 
+
+summarydata$Collection.Day<-as.numeric(summarydata$Date.Collected)-18750
+
 censusadult<-lme(Adult.Count~bin, data=summarydata, random= ~1|Colony)
 summary(censusadult)
 #Adult count significantly increases with date, aug/sep/oct significantly higher than may/june/july
-censusadult<-lme(Adult.Count~Date.Collected, data=summarydata, random= ~1|Colony)
+censusadult<-lme(Adult.Count~Collection.Day, data=summarydata, random= ~1|Colony)
 summary(censusadult)
 
 
 
 
-```
-
-
-###Is pupae to adult ratio correlated with colony size?
-```{r}
-summarydata$Pupae.Adult.Ratio <-summarydata$Pupae.Count/summarydata$Adult.Count
-
-RatioSizeModel<-lm(Pupae.Adult.Ratio~Adult.Count, data=subset(summarydata,Colony!=75))
-summary(RatioSizeModel)
 ```
 
