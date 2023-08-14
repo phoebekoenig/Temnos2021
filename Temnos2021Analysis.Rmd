@@ -412,7 +412,6 @@ emtrends(model3_cubed_fe, pairwise~Behavior.Code, var = "Pupae.Adult.Ratio",infe
 emtrends(model3_cubed_fe, pairwise~Behavior.Code, var = "Adult.Count.Scaled",infer=TRUE)
 
 
-AIC(model3_Volume, model3_VolumeCubed)
 
 plot(workerdata$standardizedvenom, fitted(model3), xlim = c(0,0.0035), ylim = c(0,0.0035))
 cor(workerdata$standardizedvenom, fitted(model3))
