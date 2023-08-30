@@ -1,0 +1,9 @@
+cff-version: 1.1.0
+message: "If you use this code or data, please cite it as below."
+authors:
+  - family-names: Koenig
+    given-names: Phoebe
+    orcid: https://orcid.org/0000-0001-9702-7784
+title: phoebekoenig/Temnos2021: KoenigTemnos2021
+version: v1.0.0
+date-released: 2023-03-27
